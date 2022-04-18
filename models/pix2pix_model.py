@@ -156,7 +156,7 @@ class Pix2PixModel(torch.nn.Module):
         else:
             input_instances = None
 
-        return input_semantics, data['image'], input_instances
+        return input_semantics, data['image'], input_instances # [1, 17, 256, 256], [1, 3, 256, 256], [1, 16, 256, 256]
 
     def compute_generator_loss(self, input_semantics, real_image, input_instances):
         G_losses = {}

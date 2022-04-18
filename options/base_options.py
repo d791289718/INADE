@@ -61,6 +61,7 @@ class BaseOptions():
         parser.add_argument('--z_dim', type=int, default=256, help="dimension of the latent z vector")
         parser.add_argument('--norm_mode', type=str, default='spade', help='normalization method, [spade|inade]')
         parser.add_argument('--noise_nc', type=int, default=64, help='the channels of noise sampled from N, only used for inade norm_mode')
+        parser.add_argument('--embedding_dim', type=int, default=128, help='embedding dimension')
 
         # for instance-wise features
         parser.add_argument('--no_instance', action='store_true', help='if specified, do *not* add instance map as input')
@@ -72,7 +73,6 @@ class BaseOptions():
         parser.add_argument('--train_eval', action='store_true', help='if specified, cal the fid for each epoch.')
         parser.add_argument('--eval_dims', type=int, default=2048, help='Dimensionality of Inception features to use.')
         parser.add_argument('--eval_epoch_freq', type=int, default=10, help='frequency of cal fid score at the end of epochs')
-        # parser.add_argument('--continue_train', action='store_true', help='continue training: load the latest model')
 
         self.initialized = True
         return parser

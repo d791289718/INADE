@@ -123,7 +123,7 @@ class InstanceAwareConv2d(nn.Module):
         N,C,H,W = x.size()
         # cal the binary mask from instance map
         instances = F.interpolate(instances, x.size()[2:], mode='nearest') # [n,1,h,w]
-        inst_unf = self.unfold(instances)
+        inst_unf = self.unfold(instances) # [n, 1 * ]
         # substract the center pixel
         center = torch.unsqueeze(inst_unf[:, self.kw * self.kw // 2, :], 1)
         mask_unf = inst_unf - center

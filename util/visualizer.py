@@ -6,9 +6,11 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 import os
 import ntpath
 import time
+import glob
 from . import util
 from . import html
 import scipy.misc
+import numpy as np
 try:
     from StringIO import StringIO  # Python 2.7
 except ImportError:
@@ -22,64 +24,59 @@ class Visualizer():
         self.win_size = opt.display_winsize
         self.name = opt.name
         if self.tf_log:
-            import tensorflow as tf
-            self.tf = tf
+            from torch.utils.tensorboard import SummaryWriter
             self.log_dir = os.path.join(opt.checkpoints_dir, opt.name, 'logs')
-            self.writer = tf.summary.FileWriter(self.log_dir)
+            self.writer =  SummaryWriter(self.log_dir)
 
         if self.use_html:
             self.web_dir = os.path.join(opt.checkpoints_dir, opt.name, 'web')
             self.img_dir = os.path.join(self.web_dir, 'images')
             print('create web directory %s...' % self.web_dir)
             util.mkdirs([self.web_dir, self.img_dir])
+            
         if opt.isTrain:
             self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
             with open(self.log_name, "a") as log_file:
                 now = time.strftime("%c")
                 log_file.write('================ Training Loss (%s) ================\n' % now)
 
+
     # |visuals|: dictionary of images to display or save
     def display_current_results(self, visuals, epoch, step):
 
         ## convert tensors to numpy arrays
         visuals = self.convert_visuals_to_numpy(visuals)
-                
-        if self.tf_log: # show images in tensorboard output
-            img_summaries = []
-            for label, image_numpy in visuals.items():
-                # Write the image to a string
-                try:
-                    s = StringIO()
-                except:
-                    s = BytesIO()
-                if len(image_numpy.shape) >= 4:
-                    image_numpy = image_numpy[0]
-                scipy.misc.toimage(image_numpy).save(s, format="jpeg")
-                # Create an Image object
-                img_sum = self.tf.Summary.Image(encoded_image_string=s.getvalue(), height=image_numpy.shape[0], width=image_numpy.shape[1])
-                # Create a Summary value
-                img_summaries.append(self.tf.Summary.Value(tag=label, image=img_sum))
 
-            # Create and write Summary
-            summary = self.tf.Summary(value=img_summaries)
-            self.writer.add_summary(summary, step)
+        # # disable tensorboard images
+        # if self.tf_log: # show images in tensorboard output
+        #     img_summaries = np.zeros((3, 3, *visuals['input_label'].shape[0:2]))
+        #     for label, image_numpy in visuals.items():
+        #         # Write the image to a string
+        #         try:
+        #             s = StringIO()
+        #         except:
+        #             s = BytesIO()
+        #         if len(image_numpy.shape) >= 4:
+        #             image_numpy = image_numpy[0]
+        #         self.writer.add_image(label, image_numpy, step,dataformats='HWC')
 
         if self.use_html: # save images to a html file
+            # save imgs
             for label, image_numpy in visuals.items():
                 if isinstance(image_numpy, list):
                     for i in range(len(image_numpy)):
-                        img_path = os.path.join(self.img_dir, 'epoch%.3d_iter%.3d_%s_%d.png' % (epoch, step, label, i))
+                        img_path = os.path.join(self.img_dir, 'epoch%.3d_%s_%d.png' % (epoch, label, i))
                         util.save_image(image_numpy[i], img_path)
                 else:
-                    img_path = os.path.join(self.img_dir, 'epoch%.3d_iter%.3d_%s.png' % (epoch, step, label))
+                    img_path = os.path.join(self.img_dir, 'epoch%.3d_%s.png' % (epoch, label))
                     if len(image_numpy.shape) >= 4:
                         image_numpy = image_numpy[0]                    
                     util.save_image(image_numpy, img_path)
 
             # update website
             webpage = html.HTML(self.web_dir, 'Experiment name = %s' % self.name, refresh=5)
-            for n in range(epoch, 0, -1):
-                webpage.add_header('epoch [%d]' % n)
+            for n in range(epoch, 0 , -1):
+                webpage.add_header('epoch [%d]' % (n))
                 ims = []
                 txts = []
                 links = []
@@ -87,12 +84,12 @@ class Visualizer():
                 for label, image_numpy in visuals.items():
                     if isinstance(image_numpy, list):
                         for i in range(len(image_numpy)):
-                            img_path = 'epoch%.3d_iter%.3d_%s_%d.png' % (n, step, label, i)
+                            img_path = 'epoch%.3d_%s_%d.png' % (n, step, i)
                             ims.append(img_path)
                             txts.append(label+str(i))
                             links.append(img_path)
                     else:
-                        img_path = 'epoch%.3d_iter%.3d_%s.png' % (n, step, label)
+                        img_path = 'epoch%.3d_%s.png' % (n, label)
                         ims.append(img_path)
                         txts.append(label)
                         links.append(img_path)
@@ -108,9 +105,8 @@ class Visualizer():
     def plot_current_errors(self, errors, step):
         if self.tf_log:
             for tag, value in errors.items():
-                value = value.mean().float()
-                summary = self.tf.Summary(value=[self.tf.Summary.Value(tag=tag, simple_value=value)])
-                self.writer.add_summary(summary, step)
+                errors[tag] = value.mean().float() # .mean() for multi gpu
+            self.writer.add_scalars('Loss', errors, step)
 
     # errors: same format as |errors| of plotCurrentErrors
     def print_current_errors(self, epoch, i, errors, t, fid=None):

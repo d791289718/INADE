@@ -147,14 +147,16 @@ class ILADE(nn.Module):
         # Part 3. class affine with noise
         noise_size = noise.size() # [B,inst_nc,2,noise_nc]
         noise_reshape = noise.view(-1, noise_size[-1]) # reshape to [B*inst_nc*2,noise_nc]
-        noise_fc = self.fc_noise(noise_reshape) # [B*inst_nc*2, norm_nc]
-        noise_fc = noise_fc.view(noise_size[0],noise_size[1],noise_size[2],-1)
+        noise_fc = self.fc_noise(noise_reshape) # [B*inst_nc*2, norm_nc], 将每个image、每个inst的noise维度由noise_nc -> norm_nc
+        noise_fc = noise_fc.view(noise_size[0],noise_size[1],noise_size[2],-1) # [B, inst_nc, 2, norm_nc]
+
         # create weigthed instance noise for scale
-        class_weight = torch.einsum('ic,nihw->nchw', self.weight[...,0], segmap)
+        class_weight = torch.einsum('ic,nihw->nchw', self.weight[...,0], segmap) # [seg_nc, norm_nc], [B, seg_nc, sw, sh] -> [B, norm_nc, sw, sh] 取segmap对应的weight(dim=norm_nc)，并扩展到该语义对应的区域
         class_bias = torch.einsum('ic,nihw->nchw', self.bias[...,0], segmap)
         # init_noise = torch.randn([x.size()[0], input_instances.size()[1], self.norm_nc], device=x.get_device())
-        instance_noise = torch.einsum('nic,nihw->nchw', noise_fc[:,:,0,:], input_instances)
+        instance_noise = torch.einsum('nic,nihw->nchw', noise_fc[:,:,0,:], input_instances) # [B, inst_nc, norm_nc], [B, inst_nc, sw, sh] -> [B, norm_nc, sw, sh] 取inst对应的noise，并扩展到该instance对应的区域
         scale_instance_noise = class_weight*instance_noise+class_bias
+
         # create weighted instance noise for bias
         class_weight = torch.einsum('ic,nihw->nchw', self.weight[..., 1], segmap)
         class_bias = torch.einsum('ic,nihw->nchw', self.bias[..., 1], segmap)

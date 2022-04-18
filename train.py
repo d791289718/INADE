@@ -38,7 +38,7 @@ if opt.train_eval:
     # val_opt = TestOptions().parse()
     original_flip = opt.no_flip
     opt.no_flip = True
-    opt.phase = 'test'
+    opt.phase = 'val' #! evaluate by val set
     opt.isTrain = False
     dataloader_val = data.create_dataloader(opt)
     val_visualizer = Visualizer(opt)
@@ -100,6 +100,11 @@ for epoch in iter_counter.training_epochs():
         #                            ('synthesized_image', trainer.get_latest_generated()),
         #                            ('real_image', data_i['image'])])
         #     visualizer.display_current_results(visuals, epoch, iter_counter.total_steps_so_far)
+        if iter_counter.needs_displaying():
+            visuals = OrderedDict([('input_label', data_i['label']),
+                                   ('synthesized_image', trainer.get_latest_generated()),
+                                   ('real_image', data_i['image'])])
+            visualizer.display_current_results(visuals, epoch, iter_counter.total_steps_so_far)
 
         if iter_counter.needs_saving():
             print('saving the latest model (epoch %d, total_steps %d)' %

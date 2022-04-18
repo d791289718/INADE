@@ -100,6 +100,7 @@ def get_activations(files, model, batch_size=50, dims=2048,
 
     n_batches = len(files) // batch_size
     n_used_imgs = n_batches * batch_size
+    print('{} images are used to calculate fid.'.format(n_used_imgs))
 
     pred_arr = np.empty((n_used_imgs, dims))
 
@@ -305,7 +306,7 @@ def _compute_statistics_of_path(path, model, batch_size, dims, cuda, args=None):
         f.close()
     else:
         path = pathlib.Path(path)
-        files = list(path.glob('*.jpg')) + list(path.glob('*.png'))
+        files = list(path.glob('*.jpg')) + list(path.glob('*.png')) + list(path.glob('*.tif'))
         m, s = calculate_activation_statistics(files, model, batch_size,
                                                dims, cuda, args=args)
 

@@ -24,6 +24,8 @@ class SPADEGenerator(BaseNetwork):
 
         self.sw, self.sh = self.compute_latent_vector_size(opt)
 
+        self.embedding_layer = nn.nn.Parameter(torch.Tensor(self.opt.label_nc, self.opt.embedding_dim, 2))
+
         if opt.use_vae or 'inade' in opt.norm_mode:
             # In case of VAE, we will sample from random z vector
             # In case of INADE, a random sampled z vector is fed to the generator
@@ -51,7 +53,7 @@ class SPADEGenerator(BaseNetwork):
 
         self.conv_img = nn.Conv2d(final_nc, 3, 3, padding=1)
 
-        self.up = nn.Upsample(scale_factor=2)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
     def compute_latent_vector_size(self, opt):
         if opt.num_upsampling_layers == 'normal':
@@ -78,7 +80,7 @@ class SPADEGenerator(BaseNetwork):
         b_noise = torch.unsqueeze(noise[:,:,1,:].mul(z[3])+z[2],2)
         return torch.cat([s_noise,b_noise],2)
 
-    def forward(self, input, z=None, input_instances=None, noise=None, noise_ins=None):
+    def forward(self, input, z=None, input_instances=None, noise=None, noise_ins=None): # noise_ins is the input, noise is the noise
         seg = input
 
         # Part 1. Process the input
@@ -137,7 +139,7 @@ class SPADEGenerator(BaseNetwork):
             x = self.up_4(x, seg, input_instances, noise)
 
         x = self.conv_img(F.leaky_relu(x, 2e-1))
-        x = F.tanh(x)
+        x = torch.tanh(x)
 
         return x
 

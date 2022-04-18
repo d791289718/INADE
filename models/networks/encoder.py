@@ -77,7 +77,7 @@ class instanceAdaptiveEncoder(BaseNetwork):
         self.up3 = conv_layer(ndf * 2, ndf, kw, stride=1, padding=pw)
         self.norm_up3 = nn.InstanceNorm2d(ndf)
 
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear')
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.class_nc = opt.semantic_nc if opt.no_instance else opt.semantic_nc-1
 
         self.scale_conv_mu = conv_layer(ndf, opt.noise_nc, kw, stride=1, padding=pw)
@@ -105,6 +105,7 @@ class instanceAdaptiveEncoder(BaseNetwork):
 
     def forward(self, x, input_instances):
         # instances [n,1,h,w], input_instances [n,inst_nc,h,w]
+        # encoder-decoder
         instances = torch.argmax(input_instances, 1, keepdim=True).float()
         x1 = self.actvn(self.norm1(self.layer1(x,instances)))
         x2 = self.actvn(self.norm2(self.layer2(x1,instances)))

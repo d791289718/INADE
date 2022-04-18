@@ -5,6 +5,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 
 from data.base_dataset import BaseDataset, get_params, get_transform
 from PIL import Image
+from torchvision.transforms.functional import InterpolationMode
 import util.util as util
 import os
 
@@ -59,7 +60,7 @@ class Pix2pixDataset(BaseDataset):
         label_path = self.label_paths[index]
         label = Image.open(label_path)
         params = get_params(self.opt, label.size)
-        transform_label = get_transform(self.opt, params, method=Image.NEAREST, normalize=False)
+        transform_label = get_transform(self.opt, params, method=InterpolationMode.NEAREST, normalize=False)
         label_tensor = transform_label(label) * 255.0
         label_tensor[label_tensor == 255] = self.opt.label_nc  # 'unknown' is opt.label_nc
 
@@ -84,7 +85,7 @@ class Pix2pixDataset(BaseDataset):
                 instance_tensor = transform_label(instance) * 255
                 instance_tensor = instance_tensor.long()
             else:
-                instance_tensor = transform_label(instance)
+                instance_tensor = transform_label(instance) # check!!!
 
         input_dict = {'label': label_tensor,
                       'instance': instance_tensor,
