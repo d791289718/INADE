@@ -24,7 +24,9 @@ class SPADEGenerator(BaseNetwork):
 
         self.sw, self.sh = self.compute_latent_vector_size(opt)
 
-        self.embedding_layer = nn.nn.Parameter(torch.Tensor(self.opt.label_nc, self.opt.embedding_dim, 2))
+        self.label_nc = self.opt.label_nc + (1 if self.opt.contain_dontcare_label else 0)
+        self.embeddings = nn.Parameter(torch.Tensor(self.label_nc, opt.embedding_nc, 4)) # [16, 128, 4]
+        self.init_embeddings()
 
         if opt.use_vae or 'inade' in opt.norm_mode:
             # In case of VAE, we will sample from random z vector
@@ -80,6 +82,16 @@ class SPADEGenerator(BaseNetwork):
         b_noise = torch.unsqueeze(noise[:,:,1,:].mul(z[3])+z[2],2)
         return torch.cat([s_noise,b_noise],2)
 
+    def init_embeddings(self):
+        nn.init.uniform_(self.embeddings[..., 0])
+        nn.init.uniform_(self.embeddings[..., 2])
+        nn.init.zeros_(self.embeddings[..., 1])
+        nn.init.zeros_(self.embeddings[..., 3])
+
+    def get_embedding(self, noise):
+        # [16, 128, 2], [B, 16, 128] -> [B, 16, 128]
+        return [noise * self.embeddings[..., 0] + self.embeddings[..., 1], noise * self.embeddings[..., 2] + self.embeddings[..., 3]]
+
     def forward(self, input, z=None, input_instances=None, noise=None, noise_ins=None): # noise_ins is the input, noise is the noise
         seg = input
 
@@ -106,10 +118,12 @@ class SPADEGenerator(BaseNetwork):
         # Part 2. Process the noise for INADE if necessary
         if 'inade' in self.opt.norm_mode:
             if noise is None:
-                noise = torch.randn([x.size()[0], input_instances.size()[1], 2, self.opt.noise_nc], device=x.get_device())
-            if self.opt.use_vae:
-                # z is the list of [s_mus,s_logvars,b_mus,b_logvars], [n,inst_nc,noise_nc]
-                noise = self.pre_process_noise(noise, z)
+                noise = torch.randn([x.size()[0], self.label_nc, self.opt.embedding_nc], device=x.get_device()) # [B, label_nc, embedding_nc]
+                noise = self.get_embedding(noise) # [B, label_nc, embedding_nc]
+            # if self.opt.use_vae:
+            #     # z is the list of [s_mus,s_logvars,b_mus,b_logvars], [n,inst_nc,noise_nc]
+            #     noise = self.pre_process_noise(noise, z)
+            
         else:
             noise = None
 

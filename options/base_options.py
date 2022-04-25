@@ -61,7 +61,7 @@ class BaseOptions():
         parser.add_argument('--z_dim', type=int, default=256, help="dimension of the latent z vector")
         parser.add_argument('--norm_mode', type=str, default='spade', help='normalization method, [spade|inade]')
         parser.add_argument('--noise_nc', type=int, default=64, help='the channels of noise sampled from N, only used for inade norm_mode')
-        parser.add_argument('--embedding_dim', type=int, default=128, help='embedding dimension')
+        parser.add_argument('--embedding_nc', type=int, default=128, help='embedding dimension')
 
         # for instance-wise features
         parser.add_argument('--no_instance', action='store_true', help='if specified, do *not* add instance map as input')

@@ -19,81 +19,58 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
+from logging import info
+from re import M
 import sys
 sys.path.append('../')
 import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
 import argparse
-import gc
-import os
 import torch
 import torchvision
 from torch.utils.data import Dataset, DataLoader
 import glob
-import json
+from loguru import logger
 import cv2
 import numpy as np
 from data.dlrsd_dataset import DLRSDDataset
-import scipy.misc
 from PIL import Image
 from util.util import tensor2im, tensor2label
 
-def colorize_mask(mask, palette=None):
-    palette =[ 255,  255,  255, # 0 background
-        238,  229,  102,# 1 back_bumper
-        0, 0, 0,# 2 bumper
-        124,  99 , 34, # 3 car
-        193 , 127,  15,# 4 car_lights
-        248  ,213 , 42, # 5 door
-        220  ,147 , 77, # 6 fender
-        99 , 83  , 3, # 7 grilles
-        116 , 116 , 138,  # 8 handles
-        200  ,226 , 37, # 9 hoods
-        225 , 184 , 161, # 10 licensePlate
-        142 , 172  ,248, # 11 mirror
-        153 , 112 , 146, # 12 roof
-        38  ,112 , 254, # 13 running_boards
-        229 , 30  ,141, # 14 tailLight
-        52 , 83  ,84, # 15 tire
-        194 , 87 , 125, # 16 trunk_lids
-        225,  96  ,18,  # 17 wheelhub
-        31 , 102 , 211, # 18 window
-        104 , 131 , 101# 19 windshield
-    ]
-    # mask: numpy array of the mask
-    new_mask = Image.fromarray(mask[0].astype(np.uint8)).convert('P')
-    new_mask.putpalette(palette)
-    return np.array(new_mask.convert('RGB'))
-
 def test(opts):
 
+    logger.add(os.path.join(opts.infer_dir, "infer.lg"))
+
     cps_all = glob.glob(os.path.join(opts.train_dir, '*.pth'))
-    cp_list = [data for data in cps_all if '.pth' in data and 'BEST' not in data and data[-6].isdigit() and int(data[-6:-4]) > 40]
+    cp_list = [data for data in cps_all if '.pth' in data and 'BEST' not in data and data[-7:-4].isdigit() and 110<=int(data[-7:-4])<=130] #  and data[-6].isdigit() and int(data[-6:-4]) > 40 and 
+    cp_list.sort()
+
+    val_data = DLRSDDataset()
+    val_data.initialize(opt=opts)
+    val_data = DataLoader(val_data, batch_size=opts.batch_size, shuffle=False, num_workers=16)
 
     test_data = DLRSDDataset()
     test_data.initialize(opt=opts)
+    test_data = DataLoader(test_data, batch_size=opts.batch_size, shuffle=False, num_workers=16)
 
     ids = range(opts.label_nc)
     
     # vis
-    vis_data = DataLoader(test_data, batch_size=opts.batch_size, shuffle=False, num_workers=16)
     vis = []
-    for j, da, in enumerate(vis_data):
+    for j, da, in enumerate(test_data):
         img, mask = da['image'], da['label']
         img = tensor2im(img[0])
-        mask = tensor2label(mask[0], opts.label_nc+2)
+        mask = tensor2label(mask[0], opts.label_nc)
         curr_vis = np.concatenate([img, mask], 0)
         if len(vis) < 50:
             vis.append(curr_vis)
     vis = np.concatenate(vis, 1)
     cv2.imwrite(os.path.join(opts.infer_dir, "testing_gt.jpg"), vis)
-
-    test_data = DataLoader(test_data, batch_size=opts.batch_size, shuffle=False, num_workers=16)
+    
     classifier = torchvision.models.segmentation.deeplabv3_resnet101(pretrained=False, progress=False,
                                                                      num_classes=opts.label_nc, aux_loss=None)
-    classifier.val()
-    cp_list.sort()
     best_val_miou = 0
+    best_test_miou = 0
     for resume in cp_list:
         checkpoint = torch.load(resume)
         classifier.load_state_dict(checkpoint['model_state_dict'])
@@ -109,7 +86,7 @@ def test(opts):
             intersections[target_num] = 0
 
         with torch.no_grad():
-            for _, da, in enumerate(test_data):
+            for _, da, in enumerate(val_data):
 
                 img, mask = da['image'], da['label']
 
@@ -118,11 +95,11 @@ def test(opts):
 
                 y_pred = classifier(img)['out']
                 y_pred = torch.log_softmax(y_pred, dim=1)
-                _, y_pred = torch.max(y_pred, dim=1)
+                _, y_pred = torch.max(y_pred, dim=1) # [bz, 256, 256]
                 y_pred = y_pred.cpu().detach().numpy()
                 mask = mask.cpu().detach().numpy()
 
-                curr_iou = []
+                # curr_iou = []
 
                 for target_num in ids:
                     y_pred_tmp = (y_pred == target_num).astype(int)
@@ -134,14 +111,18 @@ def test(opts):
                     unions[target_num] += union
                     intersections[target_num] += intersection
 
-                    if not union == 0:
-                        curr_iou.append(intersection / union)
+                    # if not union == 0:
+                    #     curr_iou.append(intersection / union)
+
             mean_ious = []
 
-            for target_num in ids:
-                mean_ious.append(intersections[target_num] / (1e-8 + unions[target_num]))
+            for j, target_num in enumerate(ids):
+                iou = intersections[target_num] / (1e-8 + unions[target_num])
+                mean_ious.append(iou)
+                logger.info("Val IOU for {}： {}".format(ids[j], iou))
             mean_iou_val = np.array(mean_ious).mean()
-            print("Checkpoints_{}: mIoU is {}".format(resume, mean_iou_val))
+            # print("Checkpoints_{}: val mIoU is {}".format(resume, mean_iou_val))
+            logger.info("Checkpoints_{}: mIoU is {}".format(resume, mean_iou_val))
 
             # test
             if mean_iou_val > best_val_miou:
@@ -162,19 +143,20 @@ def test(opts):
                         mask = mask.cuda()
 
                         vis_img = tensor2im(img[0])
-                        vis_mask = tensor2label(mask[0], opts.label_nc+2)
+                        
+                        y_pred = classifier(img)['out']
+                        y_pred = torch.log_softmax(y_pred, dim=1)
+                        _, y_pred = torch.max(y_pred, dim=1)
+
+                        vis_mask = tensor2label(torch.unsqueeze(y_pred[0], 0), opts.label_nc)
                         curr_vis = np.concatenate([vis_img, vis_mask], 0)
                         if len(testing_vis) < 50:
                             testing_vis.append(curr_vis)
 
-                        y_pred = classifier(img)['out']
-                        y_pred = torch.log_softmax(y_pred, dim=1)
-                        _, y_pred = torch.max(y_pred, dim=1)
                         y_pred = y_pred.cpu().detach().numpy()
                         mask = mask.cpu().detach().numpy()
 
-                        curr_iou = []
-
+                        # curr_iou = []
                         for target_num in ids:
                             y_pred_tmp = (y_pred == target_num).astype(int)
                             mask_tmp = (mask == target_num).astype(int)
@@ -185,28 +167,26 @@ def test(opts):
                             unions[target_num] += union
                             intersections[target_num] += intersection
 
-                            if not union == 0:
-                                curr_iou.append(intersection / union)
+                            # if not union == 0:
+                            #     curr_iou.append(intersection / union)
 
                     testing_vis = np.concatenate(testing_vis, 1)
-                    cv2.imwrite(os.path.join(opts.infer_dir, "testing.jpg"), vis)
+                    cv2.imwrite(os.path.join(opts.infer_dir, "testing.jpg"), testing_vis)
 
                     test_mean_ious = []
 
                     for j, target_num in enumerate(ids):
                         iou = intersections[target_num] / (1e-8 + unions[target_num])
-                        print("IOU for ", ids[j], iou)
-
+                        # print("IOU for ", ids[j], iou)
+                        logger.info("Test IOU for {}： {}".format(ids[j], iou))
                         test_mean_ious.append(iou)
                     best_test_miou = np.array(test_mean_ious).mean()
-                    print("Best IOU ,", str(best_test_miou), "CP: ", resume)
+                    # print("Best IOU ,", str(best_test_miou), "CP: ", resume)
+                    logger.info("Best Test IOU: {}, epoch: {}".format(best_test_miou, resume))
 
-    print("Validation mIOU:" ,best_val_miou)
-    print("Testing mIOU:" , best_test_miou )
+    logger.info("Validation mIOU:".format(best_val_miou))
+    logger.info("Testing mIOU:".format(best_test_miou))
 
-    result = {"Validation": best_val_miou, "Testing":best_test_miou}
-    with open(os.path.join(opts.infer_dir, 're.json'), 'w') as f:
-        json.dump(result, f)
 
 
 if __name__ == '__main__':
@@ -214,26 +194,35 @@ if __name__ == '__main__':
     parser.add_argument('--cfg', type=str)
     parser.add_argument('--resume', type=str,  default="")
     parser.add_argument('--batch_size', type=int,  default=50)
-    parser.add_argument('--label_nc', type=int,  default=18)
+    parser.add_argument('--label_nc', type=int,  default=17)
     parser.add_argument('--epoch', type=int,  default=60)
-    parser.add_argument('--train_dir', type=str,  default="deep_lab/checkpoints/dlrsd")
-    parser.add_argument('--infer_dir', type=str,  default="deep_lab/results/dlrsd")
+    parser.add_argument('--train_dir', type=str,  default="deep_lab/checkpoints/")
+    parser.add_argument('--infer_dir', type=str,  default="deep_lab/results/")
+    parser.add_argument('--name', type=str, default='debug')
     parser.add_argument('--preprocess_mode', type=str,  default='resize_and_crop')
-    parser.add_argument('--dataroot', type=str, default='./datasets/')
     parser.add_argument('--load_size', type=int, default=286)
     parser.add_argument('--crop_size', type=int, default=256)
     parser.add_argument('--display_winsize=', type=int, default=256)
     parser.add_argument('--contain_dontcare_label', type=bool, default=False)
     parser.add_argument('--cache_filelist_read', type=bool, default=False)
     parser.add_argument('--cache_filelist_write', type=bool, default=False)
-    parser.add_argument('--max_dataset_size', type=int, default=sys.maxsize)
+    parser.add_argument('--max_dataset_size', type=int, default=2100)
     parser.add_argument('--no_pairing_check', action='store_true')
+    parser.add_argument('--dataset_mode', type=str, default='dlrsd')
     parser.add_argument('--no_flip', action='store_true')
+    parser.add_argument('--only_test', action='store_true', help='gengrate images')
+    parser.add_argument('--deeplabv3', action='store_true', help='train deeplabV3')
+    parser.add_argument('--dataroot', type=str, default='./datasets/')
+    parser.add_argument('--deeplabv3_img_root', type=str, default='/home/wcd/repos/SPADE/results/dlrsd_se_new_lpips/test_500/images/synthesized_image', help='img root for deeplabV3')
+    parser.add_argument('--deeplabv3_label_root', type=str, default='/home/wcd/repos/stylegan2-ada-pytorch/out/checkpoints/00028-Images-cond-mirror-auto1-batch80-blit/network-snapshot-025000', help='label root for deeplabV3')
 
     opts = parser.parse_args()
-    opts.phase = 'test'
+    opts.phase = 'val'
     opts.no_instance = True
     opts.isTrain = False
+    opts.only_test = False
+    opts.train_dir = os.path.join(opts.train_dir, opts.name)
+    opts.infer_dir = os.path.join(opts.infer_dir, opts.name)
     
     print("Opt", opts)
 
@@ -243,7 +232,6 @@ if __name__ == '__main__':
     else:
         os.system('mkdir -p %s' % (path))
         print('Experiment folder created at: %s' % (path))
-
 
     test(opts)
 

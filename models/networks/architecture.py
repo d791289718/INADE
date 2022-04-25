@@ -42,10 +42,10 @@ class SPADEResnetBlock(nn.Module):
                 self.norm_s = SPADE(spade_config_str, fin, opt.semantic_nc)
         elif 'inade' in opt.norm_mode:
             input_nc = opt.label_nc + (1 if opt.contain_dontcare_label else 0)
-            self.norm_0 = ILADE(spade_config_str, fin, input_nc, opt.noise_nc)
-            self.norm_1 = ILADE(spade_config_str, fmiddle, input_nc, opt.noise_nc)
+            self.norm_0 = ILADE(spade_config_str, fin, input_nc, opt.embedding_nc)
+            self.norm_1 = ILADE(spade_config_str, fmiddle, input_nc, opt.embedding_nc)
             if self.learned_shortcut:
-                self.norm_s = ILADE(spade_config_str, fin, input_nc, opt.noise_nc)
+                self.norm_s = ILADE(spade_config_str, fin, input_nc, opt.embedding_nc)
         else:
             raise ValueError('normalization mode %s is not recognized' % opt.norm_mode)
         
