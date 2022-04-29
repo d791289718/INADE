@@ -220,7 +220,25 @@ def uint82bin(n, count=8):
 
 
 def labelcolormap(N):
-    if N == 35:  # cityscape
+    if N == 16:
+        cmap = np.array([[200, 0, 0], # industrial land
+                    [250, 0, 150], # urban residential
+                    [200, 150, 150], # rural residential
+                    [250, 150, 150], # traffic land
+                    [0, 200, 0], # paddy field
+                    [150, 250, 0], # irrigated land
+                    [150, 200, 150], # dry cropland
+                    [200, 0, 200], # garden plot
+                    [150, 0, 250], # arbor woodland
+                    [150, 150, 250], # shrub land
+                    [250, 200, 0], # natural grassland
+                    [200, 200, 0], # artificial grassland
+                    [0, 0, 200], # river
+                    [0, 150, 200], # lake
+                    [0, 200, 250], # pond
+                    [0, 0, 0]]
+                    ,dtype=np.uint8)
+    elif N == 35:  # cityscape
         cmap = np.array([(0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0), (111, 74, 0), (81, 0, 81),
                          (128, 64, 128), (244, 35, 232), (250, 170, 160), (230, 150, 140), (70, 70, 70), (102, 102, 156), (190, 153, 153),
                          (180, 165, 180), (150, 100, 100), (150, 120, 90), (153, 153, 153), (153, 153, 153), (250, 170, 30), (220, 220, 0),

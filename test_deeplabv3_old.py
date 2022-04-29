@@ -44,7 +44,7 @@ from options.test_options import TestOptions
 
 def test(opts):
     nc = opts.label_nc + 1 if opts.contain_dontcare_label else opts.label_nc
-    # logger.add(os.path.join(opts.infer_dir, "infer.lg"))
+    logger.add(os.path.join(opts.infer_dir, "infer.lg"))
     metric = Evaluator(opts.label_nc, os.path.join(opts.infer_dir, "infer.lg"), True)
 
     cps_all = glob.glob(os.path.join(opts.checkpoints_dir, '*.pth'))
@@ -61,6 +61,21 @@ def test(opts):
     test_data.initialize(opt=opts)
     test_data = DataLoader(test_data, batch_size=opts.batchSize, shuffle=False, num_workers=16)
 
+    ids = range(opts.label_nc)
+    
+    # # vis
+    # vis = []
+    # for j, da, in enumerate(test_data):
+    #     img, mask = da['image'], da['label']
+
+    #     if len(vis) < 10:
+    #         img = tensor2im(img[0])
+    #         mask = tensor2label(mask[0], nc)
+    #         curr_vis = np.concatenate([img, mask], 0)
+    #         vis.append(curr_vis)
+    # vis = np.concatenate(vis, 1)
+    # cv2.imwrite(os.path.join(opts.infer_dir, "testing_gt.jpg"), vis)
+
     classifier = torchvision.models.segmentation.deeplabv3_resnet101(pretrained=False, progress=False,
                                                                      num_classes=nc, aux_loss=None)
     best_val_miou = 0
@@ -69,8 +84,16 @@ def test(opts):
         checkpoint = torch.load(resume)
         classifier.load_state_dict(checkpoint['model_state_dict'])
 
+
         classifier.cuda()
         classifier.eval()
+
+        # unions = {}
+        # intersections = {}
+        # for target_num in ids:
+        #     unions[target_num] = 0
+        #     intersections[target_num] = 0
+        # curr_ious = []
 
         metric.reset()
         with torch.no_grad():
@@ -88,12 +111,39 @@ def test(opts):
                 mask = mask.cpu().detach().numpy()[:,0,:,:]
 
                 metric.add_batch(mask, y_pred)
+            #     for target_num in ids:
+            #         y_pred_tmp = (y_pred == target_num).astype(int)
+            #         mask_tmp = (mask == target_num).astype(int)
+
+            #         intersection = (y_pred_tmp & mask_tmp).sum()
+            #         union = (y_pred_tmp | mask_tmp).sum()
+
+            #         if union > 0: unions[target_num] += union
+            #         if intersection > 0: intersections[target_num] += intersection
+
+            #         if not union == 0:
+            #             curr_ious.append(intersection / union)
+            #     print(curr_ious)
+            # mean_ious = []
+            # for j, target_num in enumerate(ids):
+            #     iou = intersections[target_num] / (1e-8 + unions[target_num])
+            #     if iou > 0: mean_ious.append(iou)
+            #     logger.info("Val IOU for {}: {}".format(ids[j], iou))
+            # mean_iou_val = np.array(mean_ious).mean()
+            # logger.info("Checkpoints_{}: mIoU is {}".format(resume, mean_iou_val))
             mean_iou_val = metric.mIoU()
             metric.log(resume)
 
             # test
             if mean_iou_val > best_val_miou:
                 best_val_miou = mean_iou_val
+                # unions = {}
+                # intersections = {}
+                # for target_num in ids:
+                #     unions[target_num] = 0
+                #     intersections[target_num] = 0
+                # curr_ious = []
+
                 metric.reset()
                 with torch.no_grad():
                     testing_vis = []
@@ -108,15 +158,47 @@ def test(opts):
                         y_pred = torch.log_softmax(y_pred, dim=1)
                         _, y_pred = torch.max(y_pred, dim=1)
 
+                        # if len(testing_vis) < 10:
+                        #     vis_img = tensor2im(img[0])
+                        #     vis_mask = tensor2label(torch.unsqueeze(y_pred[0], 0), nc)
+                        #     curr_vis = np.concatenate([vis_img, vis_mask], 0)
+                        #     testing_vis.append(curr_vis)
+                        # testing_vis = np.concatenate(testing_vis, 1)
+                        # cv2.imwrite(os.path.join(opts.infer_dir, "testing.jpg"), testing_vis)
+
                         y_pred = y_pred.cpu().detach().numpy()
                         mask = mask.cpu().detach().numpy()[:,0,:,:]
 
 
                         metric.add_batch(mask, y_pred)
 
+                        # for target_num in ids:
+                        #     y_pred_tmp = (y_pred == target_num).astype(int)
+                        #     mask_tmp = (mask == target_num).astype(int)
+
+                        #     intersection = (y_pred_tmp & mask_tmp).sum()
+                        #     union = (y_pred_tmp | mask_tmp).sum()
+
+                        #     if union > 0 :unions[target_num] += union
+                        #     if intersection > 0:intersections[target_num] += intersection
+
+                        #     if not union == 0:
+                        #         curr_ious.append(intersection / union)
+
+                    # test_mean_ious = []
+                    # for j, target_num in enumerate(ids):
+                    #     iou = intersections[target_num] / (1e-8 + unions[target_num])
+                    #     logger.info("Test IOU for {}: {}".format(ids[j], iou))
+                    #     if iou > 0: test_mean_ious.append(iou)
+                    # best_test_miou = np.array(test_mean_ious).mean()
                     best_test_miou = metric.mIoU()
                     metric.log(resume)
                     logger.info("Best Test IOU: {}, epoch: {}".format(best_test_miou, resume))
+
+    # logger.info("Validation mIOU:".format(best_val_miou))
+    # logger.info("Testing mIOU:".format(best_test_miou))
+
+
 
 if __name__ == '__main__':
     
