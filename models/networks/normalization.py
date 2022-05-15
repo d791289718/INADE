@@ -135,7 +135,7 @@ class ILADE(nn.Module):
 
     def forward(self, x, segmap, input_instances=None, noise=None):
         # Part 1. generate parameter-free normalized activations
-        # noise is [B, inst_nc, 2, noise_nc], 2 is for scale and bias
+        # noise is [B, 2, embedding_nc, noise_nc], 2 is for scale and bias (gamma and beta)
         normalized = self.param_free_norm(x)
         N, C, W, H = x.size()
 
@@ -145,20 +145,20 @@ class ILADE(nn.Module):
         inst_map = torch.unsqueeze(segmap[:,-1,:,:],1)
         segmap = segmap[:,:-1,:,:]
 
+        embedding_size = noise.size()
         # Part 3. get gamma beta
-        noise_size = noise[0].size() # [B, label_nc, embedding_nc]
-        gamma = noise[0].view(-1, noise_size[-1]) # reshape to [B*label_nc, embedding_nc]
-        gamma = self.embedding_actv(self.embedding_gamma_0(gamma)) # [B*label_nc, norm_nc]
-        gamma = self.embedding_gamma_1(gamma)
-        gamma_map = gamma.view(noise_size[0], noise_size[1], -1) # [B, label_nc, norm_nc]
+        gamma = noise[:,0,:,:] # [B, label_nc, embedding_nc]
+        gamma = gamma.reshape(-1, embedding_size[-1]) # reshape to [B*label_nc, embedding_nc]  第0维的顺序是 batch_0_label_0, batch_0_label_1, ... batch_1_label_0
+        gamma = self.embedding_gamma_1(self.embedding_actv(self.embedding_gamma_0(gamma))) # [B*label_nc, norm_nc]
+        gamma = gamma.view(embedding_size[0], embedding_size[2], -1) # [B, label_nc, norm_nc]
 
-        beta = noise[1].view(-1, noise_size[-1]) # reshape to [B*label_nc, embedding_nc]
-        beta = self.embedding_actv(self.embedding_beta_0(beta)) # [B*label_nc, norm_nc]
-        beta = self.embedding_beta_1(beta)
-        beta_map = beta.view(noise_size[0], noise_size[1], -1) # [B, label_nc, norm_nc]
+        beta = noise[:,1,:,:]
+        beta = beta.reshape(-1, embedding_size[-1]) # reshape to [B*label_nc, embedding_nc]
+        beta = self.embedding_beta_1(self.embedding_actv(self.embedding_beta_0(beta))) # [B*label_nc, norm_nc]
+        beta = beta.view(embedding_size[0], embedding_size[2], -1) # [B, label_nc, norm_nc]
 
-        gamma_map = torch.einsum('nic,nihw->nchw', gamma_map, segmap)
-        beta_map = torch.einsum('nic,nihw->nchw', beta_map, segmap)
+        gamma_map = torch.einsum('nic,nihw->nchw', gamma, segmap) # [B, lebel_nc, norm_nc] [B, label_nc, h, w]
+        beta_map = torch.einsum('nic,nihw->nchw', beta, segmap)
 
         out = normalized * gamma_map + beta_map
 

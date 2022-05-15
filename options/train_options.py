@@ -28,6 +28,7 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--beta2', type=float, default=0.9, help='momentum term of adam')
         parser.add_argument('--no_TTUR', action='store_true', help='Use TTUR training scheme')
         parser.add_argument('--results_dir', type=str, default='./results/', help='saves results here.')
+        parser.add_argument('--add_aug', action='store_true')
 
         # the default values for beta1 and beta2 differ by TTUR option
         opt, _ = parser.parse_known_args()
@@ -48,10 +49,7 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--lambda_kld', type=float, default=0.05)
 
         # for deeplab
-        parser.add_argument('--deeplab_train_dir', type=str,  default="deep_lab/checkpoints/")
-        parser.add_argument('--deeplab_infer_dir', type=str,  default="deep_lab/results/")
         parser.add_argument('--deeplab_resume', type=str,  default="")
-        parser.add_argument('--aug_root', type=str, default='')
 
         self.isTrain = True
         return parser

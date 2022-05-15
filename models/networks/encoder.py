@@ -78,24 +78,27 @@ class instanceAdaptiveEncoder(BaseNetwork):
         self.norm_up3 = nn.InstanceNorm2d(ndf)
 
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.class_nc = opt.semantic_nc if opt.no_instance else opt.semantic_nc-1
+        # self.class_nc = opt.semantic_nc if opt.no_instance else opt.semantic_nc-1
 
-        self.scale_conv_mu = conv_layer(ndf, opt.noise_nc, kw, stride=1, padding=pw)
-        self.scale_conv_var = conv_layer(ndf, opt.noise_nc, kw, stride=1, padding=pw)
-        self.bias_conv_mu = conv_layer(ndf, opt.noise_nc, kw, stride=1, padding=pw)
-        self.bias_conv_var = conv_layer(ndf, opt.noise_nc, kw, stride=1, padding=pw)
+        self.scale_conv_mu = conv_layer(ndf, opt.embedding_nc, kw, stride=1, padding=pw)
+        self.scale_conv_var = conv_layer(ndf, opt.embedding_nc, kw, stride=1, padding=pw)
+        self.bias_conv_mu = conv_layer(ndf, opt.embedding_nc, kw, stride=1, padding=pw)
+        self.bias_conv_var = conv_layer(ndf, opt.embedding_nc, kw, stride=1, padding=pw)
 
         self.actvn = nn.LeakyReLU(0.2, False)
         self.opt = opt
 
-    def instAvgPooling(self, x, instances):
+    def instAvgPooling(self, x, instances, mode):
         inst_num = instances.size()[1]
         for i in range(inst_num):
             inst_mask = torch.unsqueeze(instances[:,i,:,:], 1) # [n,1,h,w]
-            pixel_num = torch.sum(torch.sum(inst_mask, dim=2, keepdim=True), dim=3, keepdim=True)
+            pixel_num = torch.sum(torch.sum(inst_mask, dim=2, keepdim=True), dim=3, keepdim=True) # [N, 1, 1, 1]
+            feat_mask = pixel_num.repeat(1,x.size()[1],1,1)
             pixel_num[pixel_num==0] = 1
             feat = x * inst_mask
             feat = torch.sum(torch.sum(feat, dim=2, keepdim=True), dim=3, keepdim=True) / pixel_num
+            #! option4: 直接相乘 or 再次affine
+            # if mode == 'scale': feat[feat_mask==0] = 1.0
             if i == 0:
                 out = torch.unsqueeze(feat[:,:,0,0],1) # [n,1,c]
             else:
@@ -114,16 +117,16 @@ class instanceAdaptiveEncoder(BaseNetwork):
         y = self.up(self.actvn(self.norm_middle(self.middle(x4,instances))))
         y1 = self.up(self.actvn(self.norm_up1(self.up1(torch.cat([y,x3],1),instances))))
         y2 = self.up(self.actvn(self.norm_up2(self.up2(torch.cat([y1, x2], 1),instances))))
-        y3 = self.up(self.actvn(self.norm_up3(self.up3(torch.cat([y2, x1], 1),instances))))
+        y3 = self.up(self.actvn(self.norm_up3(self.up3(torch.cat([y2, x1], 1),instances)))) # [B, 64, 256, 256]
 
-        scale_mu = self.scale_conv_mu(y3,instances)
-        scale_var = self.scale_conv_var(y3,instances)
-        bias_mu = self.bias_conv_mu(y3,instances)
-        bias_var = self.bias_conv_var(y3,instances)
+        gamma_scale = self.scale_conv_mu(y3,instances)
+        gamma_bias = self.scale_conv_var(y3,instances)
+        beta_scale = self.bias_conv_mu(y3,instances)
+        beta_bias = self.bias_conv_var(y3,instances)
 
-        scale_mus = self.instAvgPooling(scale_mu,input_instances)
-        scale_vars = self.instAvgPooling(scale_var,input_instances)
-        bias_mus = self.instAvgPooling(bias_mu,input_instances)
-        bias_vars = self.instAvgPooling(bias_var,input_instances)
+        gamma_scales = self.instAvgPooling(gamma_scale,input_instances,'scale')
+        gamma_biass = self.instAvgPooling(gamma_bias,input_instances,'bias')
+        beta_scales = self.instAvgPooling(beta_scale,input_instances,'scale')
+        beta_biass = self.instAvgPooling(beta_bias,input_instances,'bias')
 
-        return scale_mus, scale_vars, bias_mus, bias_vars
+        return gamma_scales, gamma_biass, beta_scales, beta_biass # [N, label_nc, embedding_nc]

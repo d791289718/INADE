@@ -1,7 +1,10 @@
+from email.policy import default
 import torch
 import models.networks as networks
 import util.util as util
+from collections import defaultdict
 import random
+import os
 try:
     from torch.cuda.amp import autocast as autocast, GradScaler
     AMP = True
@@ -48,7 +51,7 @@ class Pix2PixModel(torch.nn.Module):
     # can't parallelize custom functions, we branch to different
     # routines based on |mode|.
     def forward(self, data, mode):
-        input_semantics, real_image, input_instances = self.preprocess_input(data)
+        input_semantics, real_image, input_instances, path = self.preprocess_input(data) # [B, 17, 256, 256], [B, 3, 256, 256], [B, 16, 256, 256]
 
         if mode == 'generator':
             g_loss, generated = self.compute_generator_loss(
@@ -63,7 +66,7 @@ class Pix2PixModel(torch.nn.Module):
             return mu, logvar
         elif mode == 'inference':
             with torch.no_grad():
-                fake_image, _ = self.generate_fake(input_semantics, real_image, input_instances)
+                fake_image, _ = self.generate_fake(input_semantics, real_image, input_instances, path)
             return fake_image
         else:
             raise ValueError("|mode| is invalid")
@@ -156,7 +159,7 @@ class Pix2PixModel(torch.nn.Module):
         else:
             input_instances = None
 
-        return input_semantics, data['image'], input_instances # [1, 17, 256, 256], [1, 3, 256, 256], [1, 16, 256, 256]
+        return input_semantics, data['image'], input_instances, data['path'] # [1, 17, 256, 256], [1, 3, 256, 256], [1, 16, 256, 256]
 
     def compute_generator_loss(self, input_semantics, real_image, input_instances):
         G_losses = {}
@@ -223,16 +226,16 @@ class Pix2PixModel(torch.nn.Module):
         z = self.reparameterize(mu, logvar)
         return z, mu, logvar
 
-    def instance_encode_z(self, real_image, input_instances):
+    def instance_encode_z(self, real_image, input_semantics):
         if self.amp:
             with autocast():
-                s_mus, s_logvars, b_mus, b_logvars = self.netIE(real_image,input_instances)
+                gamma_scales, gamma_biass, beta_scales, beta_biass = self.netIE(real_image,input_semantics)
         else:
-            s_mus, s_logvars, b_mus, b_logvars = self.netIE(real_image,input_instances)
-        z = [s_mus,torch.exp(0.5 * s_logvars),b_mus,torch.exp(0.5 * b_logvars)]
-        return z, s_mus, s_logvars, b_mus, b_logvars
+            gamma_scales, gamma_biass, beta_scales, beta_biass = self.netIE(real_image,input_semantics)
+        z = [torch.exp(0.5 * gamma_scales), gamma_biass, torch.exp(0.5 * beta_scales), beta_biass]
+        return z, gamma_scales, gamma_biass, beta_scales, beta_biass
 
-    def generate_fake(self, input_semantics, real_image, input_instances, compute_kld_loss=False):
+    def generate_fake(self, input_semantics, real_image, input_instances, path=None, compute_kld_loss=False):
         z = None
         KLD_loss = None
         if self.opt.use_vae:
@@ -241,15 +244,15 @@ class Pix2PixModel(torch.nn.Module):
                 if compute_kld_loss:
                     KLD_loss = self.KLDLoss(mu, logvar) * self.opt.lambda_kld
             elif 'inade' in self.opt.norm_mode:
-                z, s_mus, s_logvars, b_mus, b_logvars = self.instance_encode_z(real_image,input_instances)
+                z, gamma_scales, gamma_biass, beta_scales, beta_biass = self.instance_encode_z(real_image,input_semantics[:,:-1,:,:])
                 if compute_kld_loss:
-                    KLD_loss = (self.KLDLoss(s_mus, s_logvars)+self.KLDLoss(b_mus, b_logvars)) * self.opt.lambda_kld / 2
+                    KLD_loss = (self.KLDLoss(gamma_biass, gamma_scales)+self.KLDLoss(beta_biass, beta_scales)) * self.opt.lambda_kld / 2
 
         if self.amp:
             with autocast():
-                fake_image = self.netG(input_semantics, z=z, input_instances=input_instances)
+                fake_image = self.netG(input_semantics, z=z, input_instances=input_instances, path=path)
         else:
-            fake_image = self.netG(input_semantics, z=z, input_instances=input_instances)
+            fake_image = self.netG(input_semantics, z=z, input_instances=input_instances, path=path)
 
         assert (not compute_kld_loss) or self.opt.use_vae, \
             "You cannot compute KLD loss if opt.use_vae == False"

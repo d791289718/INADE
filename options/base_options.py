@@ -73,6 +73,7 @@ class BaseOptions():
         parser.add_argument('--train_eval', action='store_true', help='if specified, cal the fid for each epoch.')
         parser.add_argument('--eval_dims', type=int, default=2048, help='Dimensionality of Inception features to use.')
         parser.add_argument('--eval_epoch_freq', type=int, default=10, help='frequency of cal fid score at the end of epochs')
+        parser.add_argument('--record_noise', action='store_true')
 
         self.initialized = True
         return parser
@@ -164,6 +165,7 @@ class BaseOptions():
 
         # Set semantic_nc based on the option.
         # This will be convenient in many places
+        # but not used in my code
         opt.semantic_nc = opt.label_nc + \
             (1 if opt.contain_dontcare_label else 0) + \
             (0 if opt.no_instance else 1)

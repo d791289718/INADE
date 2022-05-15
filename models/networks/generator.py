@@ -1,3 +1,7 @@
+from collections import defaultdict
+import random
+import os
+import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -21,6 +25,9 @@ class SPADEGenerator(BaseNetwork):
         super().__init__()
         self.opt = opt
         nf = opt.ngf
+
+        self.seed_file = os.path.join(opt.aug_dir, 'aug_seed.txt')
+        # self.seed_dict = {}
 
         self.sw, self.sh = self.compute_latent_vector_size(opt)
 
@@ -75,12 +82,15 @@ class SPADEGenerator(BaseNetwork):
 
     def pre_process_noise(self, noise, z):
         '''
-        noise: [n,inst_nc,2,noise_nc], z_i [n,inst_nc,noise_nc]
-        z: [s_mus,torch.exp(0.5 * s_logvars),b_mus,torch.exp(0.5 * b_logvars)]
+        noise: [n,inst_nc,2,noise_nc], z_i [n,inst_nc,embedding_nc]
+        z: [gamma_scales, gamma_biass, beta_scales, beta_biass], size=[n,inst_nc,embedding_nc]
         '''
-        s_noise = torch.unsqueeze(noise[:,:,0,:].mul(z[1])+z[0],2)
-        b_noise = torch.unsqueeze(noise[:,:,1,:].mul(z[3])+z[2],2)
-        return torch.cat([s_noise,b_noise],2)
+        #! option4: 直接相乘 or 再次affine
+        # s_noise = torch.unsqueeze(noise[:,:,0,:].mul(z[1])+z[0],2)
+        # b_noise = torch.unsqueeze(noise[:,:,1,:].mul(z[3])+z[2],2)
+        # return torch.cat([s_noise,b_noise],2)
+        # 再次affine
+        return torch.stack([noise[:,0,:,:].mul(z[0])+z[1], noise[:,1,:,:].mul(z[2])+z[3]], 1)
 
     def init_embeddings(self):
         nn.init.uniform_(self.embeddings[..., 0])
@@ -90,14 +100,17 @@ class SPADEGenerator(BaseNetwork):
 
     def get_embedding(self, noise):
         # [16, 128, 2], [B, 16, 128] -> [B, 16, 128]
-        return [noise * self.embeddings[..., 0] + self.embeddings[..., 1], noise * self.embeddings[..., 2] + self.embeddings[..., 3]]
+        # self.embdding [gamma_scale, gamma_bias, beta_scale, beta_bias]
+        gamme_embedding = noise * self.embeddings[..., 0] + self.embeddings[..., 1]
+        beta_embedding = noise * self.embeddings[..., 2] + self.embeddings[..., 3]
+        return torch.stack([gamme_embedding, beta_embedding], 1)
 
-    def forward(self, input, z=None, input_instances=None, noise=None, noise_ins=None): # noise_ins is the input, noise is the noise
+    def forward(self, input, z=None, input_instances=None, noise=None, noise_ins=None, path=None): # noise_ins is the input, noise is the noise
         seg = input
 
         # Part 1. Process the input
         if self.opt.use_vae and 'spade' in self.opt.norm_mode:
-            # SPADE - vae mode, z is the random noise
+            # SPADE - vae mode, z is the random noise 作为整个网络的输入
             if z is None:
                 z = torch.randn(input.size(0), self.opt.z_dim,
                                 dtype=torch.float32, device=input.get_device())
@@ -108,6 +121,7 @@ class SPADEGenerator(BaseNetwork):
             if noise_ins is None:
                 noise_ins = torch.randn(input.size(0), self.opt.z_dim,
                                     dtype=torch.float32, device=input.get_device())
+
             x = self.fc(noise_ins)
             x = x.view(-1, 16 * self.opt.ngf, self.sh, self.sw)
         else:
@@ -119,38 +133,48 @@ class SPADEGenerator(BaseNetwork):
         if 'inade' in self.opt.norm_mode:
             if noise is None:
                 noise = torch.randn([x.size()[0], self.label_nc, self.opt.embedding_nc], device=x.get_device()) # [B, label_nc, embedding_nc]
-                noise = self.get_embedding(noise) # [B, label_nc, embedding_nc]
-            # if self.opt.use_vae:
-            #     # z is the list of [s_mus,s_logvars,b_mus,b_logvars], [n,inst_nc,noise_nc]
-            #     noise = self.pre_process_noise(noise, z)
-            
+                embeddings = self.get_embedding(noise) # [B, label_nc, embedding_nc]
+            if self.opt.use_vae:
+                # z is the list of [gamma_scales, gamma_biass, beta_scales, beta_biass], [n,inst_nc,embedding_nc]
+                embeddings = self.pre_process_noise(embeddings, z)
         else:
-            noise = None
+            embeddings = None
+
+        #! option2: 要不要在进入每个层前做一个公用的MLP（要不要不同语义不同MLP）
+
+        # if self.opt.phase == 'generate' and self.opt.record_noise:
+        #     with open(self.seed_file, 'a') as f:
+        #         for b in range(input.shape[0]):
+        #             f.write(path[b])
+        #             f.write('noise_0: ' + str(noise[0][b].tolist()) + '\n')
+        #             f.write('noise_1: ' + str(noise[1][b].tolist()) + '\n')
+        #             f.write('noise_ins: ' + str(noise_ins[b].tolist()) + '\n')
+        #             f.write('\n')
 
         # Part 3. Forward the main branch
-        x = self.head_0(x, seg, input_instances, noise)
+        x = self.head_0(x, seg, input_instances, embeddings)
 
         x = self.up(x)
-        x = self.G_middle_0(x, seg, input_instances, noise)
+        x = self.G_middle_0(x, seg, input_instances, embeddings)
 
         if self.opt.num_upsampling_layers == 'more' or \
            self.opt.num_upsampling_layers == 'most':
             x = self.up(x)
 
-        x = self.G_middle_1(x, seg, input_instances, noise)
+        x = self.G_middle_1(x, seg, input_instances, embeddings)
 
         x = self.up(x)
-        x = self.up_0(x, seg, input_instances, noise)
+        x = self.up_0(x, seg, input_instances, embeddings)
         x = self.up(x)
-        x = self.up_1(x, seg, input_instances, noise)
+        x = self.up_1(x, seg, input_instances, embeddings)
         x = self.up(x)
-        x = self.up_2(x, seg, input_instances, noise)
+        x = self.up_2(x, seg, input_instances, embeddings)
         x = self.up(x)
-        x = self.up_3(x, seg, input_instances, noise)
+        x = self.up_3(x, seg, input_instances, embeddings)
 
         if self.opt.num_upsampling_layers == 'most':
             x = self.up(x)
-            x = self.up_4(x, seg, input_instances, noise)
+            x = self.up_4(x, seg, input_instances, embeddings)
 
         x = self.conv_img(F.leaky_relu(x, 2e-1))
         x = torch.tanh(x)

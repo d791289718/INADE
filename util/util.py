@@ -3,6 +3,7 @@ Copyright (C) 2019 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 
+from cProfile import label
 import re
 import importlib
 import torch
@@ -14,6 +15,34 @@ import argparse
 import dill as pickle
 import util.coco
 
+def get_palette(name):
+    if name == 'GID':
+        palette = [[200, 0, 0], # industrial land
+                    [250, 0, 150], # urban residential
+                    [200, 150, 150], # rural residential
+                    [250, 150, 150], # traffic land
+                    [0, 200, 0], # paddy field
+                    [150, 250, 0], # irrigated land
+                    [150, 200, 150], # dry cropland
+                    [200, 0, 200], # garden plot
+                    [150, 0, 250], # arbor woodland
+                    [150, 150, 250], # shrub land
+                    [250, 200, 0], # natural grassland
+                    [200, 200, 0], # artificial grassland
+                    [0, 0, 200], # river
+                    [0, 150, 200], # lake
+                    [0, 200, 250], # pond
+                    [0, 0, 0]]    
+    return palette
+
+
+def get_file(path):
+    root, name_ext = os.path.split(path)
+    name, ext = os.path.splitext(name_ext)
+    return root, name, ext
+
+def get_fileroot(path):
+    return 
 
 def save_obj(obj, name):
     with open(name, 'wb') as f:
@@ -125,18 +154,32 @@ def tensor2label(label_tensor, n_label, imtype=np.uint8, tile=False):
     return result
 
 
-def save_image(image_numpy, image_path, create_dir=False):
+def save_image(image_numpy, image_path, create_dir=True):
     if create_dir:
         os.makedirs(os.path.dirname(image_path), exist_ok=True)
     if len(image_numpy.shape) == 2:
         image_numpy = np.expand_dims(image_numpy, axis=2)
     if image_numpy.shape[2] == 1:
-        image_numpy = np.repeat(image_numpy, 3, 2)
+        image_numpy = np.repeat(image_numpy, 3, axis=2)
     image_pil = Image.fromarray(image_numpy)
 
     # save to png
     image_pil.save(image_path.replace('.jpg', '.png'))
 
+
+def save_label(label_numpy, label_path, name, create_dir=True):
+    if create_dir:
+        os.makedirs(os.path.dirname(label_path), exist_ok=True)
+
+    if len(label_numpy.shape) == 3:
+        if label_numpy.shape[2] == 1: label_numpy = label_numpy[...,0] 
+        elif label_numpy.shape[0] == 1: label_numpy = label_numpy[0] 
+    label_pil = Image.fromarray(label_numpy.astype(np.uint8))
+    palette = np.array(get_palette(name), dtype='uint8').flatten()
+    label_pil.putpalette(palette)
+
+    # save to png
+    label_pil.save(label_path.replace('.jpg', '.png'),mode='P')
 
 def mkdirs(paths):
     if isinstance(paths, list) and not isinstance(paths, str):

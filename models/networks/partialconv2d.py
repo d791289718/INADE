@@ -123,17 +123,17 @@ class InstanceAwareConv2d(nn.Module):
         N,C,H,W = x.size()
         # cal the binary mask from instance map
         instances = F.interpolate(instances, x.size()[2:], mode='nearest') # [n,1,h,w]
-        inst_unf = self.unfold(instances) # [n, 1 * ]
+        inst_unf = self.unfold(instances) # [n, kw*kw, L(有多少个滑动窗口)], 每个2维存的是该卷积窗口包括的元素
         # substract the center pixel
-        center = torch.unsqueeze(inst_unf[:, self.kw * self.kw // 2, :], 1)
+        center = torch.unsqueeze(inst_unf[:, self.kw * self.kw // 2, :], 1) # [n, 1, L(滑动窗口数)] 所有滑动窗口中间的像素
         mask_unf = inst_unf - center
         # clip the absolute value to 0~1
         mask_unf = torch.abs(mask_unf)
         mask_unf = torch.clamp(mask_unf, 0, 1)
-        mask_unf = 1.0 - mask_unf # [n,k*k,L]
+        mask_unf = 1.0 - mask_unf # [n,k*k,L] 和inst卷积窗口中间值一样的mask为1，不一样的为0，即不卷积那些和中间值semantic不一样的像素
         # multiply mask_unf and x
         x_unf = self.unfold(x)  # [n,c*k*k,L]
-        x_unf = x_unf.view(N, C, -1, x_unf.size()[-1]) # [n,c,,k*k,L]
+        x_unf = x_unf.view(N, C, -1, x_unf.size()[-1]) # [n,c,k*k,L]
         mask = torch.unsqueeze(mask_unf,1) # [n,1,k*k,L]
         mask_x = mask * x_unf # [n,c,k*k,L]
         mask_x = mask_x.view(N,-1,mask_x.size()[-1]) # [n,c*k*k,L]

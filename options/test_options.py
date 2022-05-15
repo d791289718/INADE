@@ -12,12 +12,11 @@ class TestOptions(BaseOptions):
         parser.add_argument('--results_dir', type=str, default='./results/', help='saves results here.')
         parser.add_argument('--which_epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached model')
         parser.add_argument('--how_many', type=int, default=float("inf"), help='how many test images to run')
+        parser.add_argument('--generate_stamp', type=str, default='')
+        parser.add_argument('--add_aug', action='store_true')
 
         # for deeplab
-        parser.add_argument('--deeplab_train_dir', type=str,  default="deep_lab/checkpoints/")
-        parser.add_argument('--deeplab_infer_dir', type=str,  default="deep_lab/results/")
         parser.add_argument('--deeplab_resume', type=str,  default="")
-        parser.add_argument('--aug_root', type=str, default='')
 
         parser.set_defaults(preprocess_mode='scale_width_and_crop', crop_size=256, load_size=256, display_winsize=256)
         parser.set_defaults(serial_batches=True)

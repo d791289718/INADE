@@ -41,13 +41,12 @@ from util.metric import Evaluator
 from options.test_options import TestOptions
 
 
-
 def test(opts):
     nc = opts.label_nc + 1 if opts.contain_dontcare_label else opts.label_nc
-    logger.add(os.path.join(opts.infer_dir, "infer.lg"))
-    metric = Evaluator(opts.label_nc, os.path.join(opts.infer_dir, "infer.lg"), True)
+    logger.add(os.path.join(os.path.join(opts.results_dir, opts.name), "infer.lg"))
+    metric = Evaluator(opts.label_nc, os.path.join(os.path.join(opts.results_dir, opts.name), "infer.lg"), True)
 
-    cps_all = glob.glob(os.path.join(opts.checkpoints_dir, '*.pth'))
+    cps_all = glob.glob(os.path.join(os.path.join(opts.checkpoints_dir, opts.name), '*.pth'))
     cp_list = [data for data in cps_all if '.pth' in data and 'BEST' not in data and data[-7:-4].isdigit() and 100<=int(data[-7:-4])<=145] #  and data[-6].isdigit() and int(data[-6:-4]) > 40 and 
     cp_list.sort(reverse=True)
 
@@ -203,12 +202,10 @@ def test(opts):
 if __name__ == '__main__':
     
     opts = TestOptions().parse()
-    opts.infer_dir = os.path.join(opts.deeplab_infer_dir, opts.name)
-    opts.checkpoints_dir = os.path.join(opts.deeplab_train_dir, opts.name)
 
     print("Opt", opts)
 
-    path = opts.infer_dir
+    path = os.path.join(opts.results_dir, opts.name)
     if os.path.exists(path):
         pass
     else:
