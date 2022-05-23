@@ -29,6 +29,7 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--no_TTUR', action='store_true', help='Use TTUR training scheme')
         parser.add_argument('--results_dir', type=str, default='./results/', help='saves results here.')
         parser.add_argument('--add_aug', action='store_true')
+        parser.add_argument('--no_realimg_seg_loss', action='store_true')
 
         # the default values for beta1 and beta2 differ by TTUR option
         opt, _ = parser.parse_known_args()

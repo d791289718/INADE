@@ -74,6 +74,7 @@ class BaseOptions():
         parser.add_argument('--eval_dims', type=int, default=2048, help='Dimensionality of Inception features to use.')
         parser.add_argument('--eval_epoch_freq', type=int, default=10, help='frequency of cal fid score at the end of epochs')
         parser.add_argument('--record_noise', action='store_true')
+        parser.add_argument('--use_segmodel', action='store_true')
 
         self.initialized = True
         return parser

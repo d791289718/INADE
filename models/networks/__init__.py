@@ -65,3 +65,7 @@ def define_E(opt):
 def define_IE(opt):
     netIE_cls = find_network_using_name('instanceadaptive', 'encoder')
     return create_network(netIE_cls, opt)
+
+def define_S(opt):
+    netS_cls = find_network_using_name('unet', 'segmentor')
+    return create_network(netS_cls, opt)
