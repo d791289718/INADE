@@ -30,7 +30,7 @@ class Pix2PixModel(torch.nn.Module):
             self.ByteTensor = torch.cuda.ByteTensor if self.use_gpu() \
                 else torch.ByteTensor
 
-        self.netG, self.netD, self.netE, self.netIE = self.initialize_networks(opt)
+        self.netG, self.netD, self.netE, self.netIE, self.netS = self.initialize_networks(opt)
 
         self.isNoise = True if 'inade' in opt.norm_mode else False
 
@@ -45,6 +45,8 @@ class Pix2PixModel(torch.nn.Module):
                 self.criterionVGG = networks.VGGLoss(self.opt.gpu_ids, self.isNoise)
             if opt.use_vae:
                 self.KLDLoss = networks.KLDLoss()
+            if opt.use_segmodel:
+                self.criterionSeg = torch.nn.CrossEntropyLoss()
 
     # Entry point for all calls involving forward pass
     # of deep networks. We used this approach since DataParallel module
@@ -55,11 +57,11 @@ class Pix2PixModel(torch.nn.Module):
 
         if mode == 'generator':
             g_loss, generated = self.compute_generator_loss(
-                input_semantics, real_image, input_instances)
+                input_semantics, real_image, input_instances, data['label'][:,0,:,:])
             return g_loss, generated
         elif mode == 'discriminator':
             d_loss = self.compute_discriminator_loss(
-                input_semantics, real_image, input_instances)
+                input_semantics, real_image, input_instances, data['label'][:,0,:,:])
             return d_loss
         elif mode == 'encode_only' and 'spade' in self.opt.norm_mode:
             z, mu, logvar = self.encode_z(real_image)
@@ -68,18 +70,25 @@ class Pix2PixModel(torch.nn.Module):
             with torch.no_grad():
                 fake_image, _ = self.generate_fake(input_semantics, real_image, input_instances, path)
             return fake_image
+        elif mode == 'segment':
+            with torch.no_grad():
+                seg = self.segment_image(real_image)
+            return seg
         else:
             raise ValueError("|mode| is invalid")
 
     def create_optimizers(self, opt):
         G_params = list(self.netG.parameters())
         if opt.use_vae:
-            if 'spade' in opt.norm_mode:
+            if 'inade' in opt.norm_mode:
                 G_params += list(self.netE.parameters())
-            elif 'inade' in opt.norm_mode:
-                G_params += list(self.netIE.parameters())
+            # elif 'inade' in opt.norm_mode:
+                # G_params += list(self.netIE.parameters())
         if opt.isTrain:
             D_params = list(self.netD.parameters())
+
+        if opt.use_segmodel:
+            G_params += list(self.netS.parameters())
 
         beta1, beta2 = opt.beta1, opt.beta2
         if opt.no_TTUR:
@@ -96,32 +105,39 @@ class Pix2PixModel(torch.nn.Module):
         util.save_network(self.netG, 'G', epoch, self.opt)
         util.save_network(self.netD, 'D', epoch, self.opt)
         if self.opt.use_vae:
-            if 'spade' in self.opt.norm_mode:
+            if 'inade' in self.opt.norm_mode:
                 util.save_network(self.netE, 'E', epoch, self.opt)
-            elif 'inade' in self.opt.norm_mode:
-                util.save_network(self.netIE, 'E', epoch, self.opt)
+            # elif 'inade' in self.opt.norm_mode:
+                # util.save_network(self.netIE, 'E', epoch, self.opt)
+        if self.opt.use_segmodel:
+            util.save_network(self.netS, 'S', epoch, self.opt)
 
     ############################################################################
     # Private helper methods
     ############################################################################
 
-    def initialize_networks(self, opt):
+    def initialize_networks(self, opt, epoch=None):
         netG = networks.define_G(opt)
         netD = networks.define_D(opt) if opt.isTrain else None
-        netE = networks.define_E(opt) if opt.use_vae and 'spade' in opt.norm_mode else None
-        netIE = networks.define_IE(opt) if opt.use_vae and 'inade' in opt.norm_mode else None
+        netE = networks.define_E(opt) if opt.use_vae and 'inade' in opt.norm_mode else None
+        # netIE = networks.define_IE(opt) if opt.use_vae and 'inade' in opt.norm_mode else None
+        netIE = None
+        netS = networks.define_S(opt) if opt.use_segmodel else None
 
         if not opt.isTrain or opt.continue_train:
-            netG = util.load_network(netG, 'G', opt.which_epoch, opt)
+            epoch = opt.which_epoch if not epoch else epoch
+            netG = util.load_network(netG, 'G', epoch, opt)
             if opt.isTrain:
-                netD = util.load_network(netD, 'D', opt.which_epoch, opt)
+                netD = util.load_network(netD, 'D', epoch, opt)
             if opt.use_vae:
-                if 'spade' in opt.norm_mode:
-                    netE = util.load_network(netE, 'E', opt.which_epoch, opt)
-                elif 'inade' in opt.norm_mode:
-                    netIE = util.load_network(netIE, 'E', opt.which_epoch, opt)
+                if 'inade' in opt.norm_mode:
+                    netE = util.load_network(netE, 'E', epoch, opt)
+                # elif 'inade' in opt.norm_mode:
+                    # netIE = util.load_network(netIE, 'E', epoch, opt)
+            if opt.use_segmodel:
+                netS = util.load_network(netS, 'S', epoch, opt)
 
-        return netG, netD, netE, netIE
+        return netG, netD, netE, netIE, netS
 
     # preprocess the input, such as moving the tensors to GPUs and
     # transforming the label map to one-hot encoding
@@ -161,7 +177,7 @@ class Pix2PixModel(torch.nn.Module):
 
         return input_semantics, data['image'], input_instances, data['path'] # [1, 17, 256, 256], [1, 3, 256, 256], [1, 16, 256, 256]
 
-    def compute_generator_loss(self, input_semantics, real_image, input_instances):
+    def compute_generator_loss(self, input_semantics, real_image, input_instances, semantic_mask):
         G_losses = {}
 
         fake_image, KLD_loss = self.generate_fake(
@@ -197,10 +213,17 @@ class Pix2PixModel(torch.nn.Module):
                     G_losses['VGG'] = self.criterionVGG(fake_image, real_image) * self.opt.lambda_vgg
             else:
                 G_losses['VGG'] = self.criterionVGG(fake_image, real_image) * self.opt.lambda_vgg
+        
+        if self.opt.use_segmodel:
+            if not self.opt.no_realimg_seg_loss:
+                real_seg = self.netS(real_image)
+                G_losses['SEG_real'] = self.criterionSeg(real_seg, semantic_mask)
+            fake_seg = self.netS(fake_image)
+            G_losses['SEG_fake'] = self.criterionSeg(fake_seg, semantic_mask)
 
         return G_losses, fake_image
 
-    def compute_discriminator_loss(self, input_semantics, real_image, input_instances):
+    def compute_discriminator_loss(self, input_semantics, real_image, input_instances, semantic_mask):
         D_losses = {}
         with torch.no_grad():
             fake_image, _ = self.generate_fake(input_semantics, real_image, input_instances)
@@ -210,7 +233,7 @@ class Pix2PixModel(torch.nn.Module):
         pred_fake, pred_real = self.discriminate(
             input_semantics, fake_image, real_image)
 
-        D_losses['D_Fake'] = self.criterionGAN(pred_fake, False,
+        D_losses['D_fake'] = self.criterionGAN(pred_fake, False,
                                                for_discriminator=True)
         D_losses['D_real'] = self.criterionGAN(pred_real, True,
                                                for_discriminator=True)
@@ -220,11 +243,11 @@ class Pix2PixModel(torch.nn.Module):
     def encode_z(self, real_image):
         if self.amp:
             with autocast():
-                mu, logvar = self.netE(real_image)
+                gamma_scale, gamma_bias, beta_scale, beta_bias = self.netE(real_image)
         else:
-            mu, logvar = self.netE(real_image)
-        z = self.reparameterize(mu, logvar)
-        return z, mu, logvar
+            gamma_scale, gamma_bias, beta_scale, beta_bias = self.netE(real_image)
+        z = [torch.exp(0.5 * gamma_scale), gamma_bias, torch.exp(0.5 * beta_scale), beta_bias]
+        return z, gamma_scale, gamma_bias, beta_scale, beta_bias
 
     def instance_encode_z(self, real_image, input_semantics):
         if self.amp:
@@ -244,7 +267,8 @@ class Pix2PixModel(torch.nn.Module):
                 if compute_kld_loss:
                     KLD_loss = self.KLDLoss(mu, logvar) * self.opt.lambda_kld
             elif 'inade' in self.opt.norm_mode:
-                z, gamma_scales, gamma_biass, beta_scales, beta_biass = self.instance_encode_z(real_image,input_semantics[:,:-1,:,:])
+                # z, gamma_scales, gamma_biass, beta_scales, beta_biass = self.instance_encode_z(real_image,input_semantics[:,:-1,:,:])
+                z, gamma_scales, gamma_biass, beta_scales, beta_biass = self.encode_z(real_image)
                 if compute_kld_loss:
                     KLD_loss = (self.KLDLoss(gamma_biass, gamma_scales)+self.KLDLoss(beta_biass, beta_scales)) * self.opt.lambda_kld / 2
 
@@ -258,6 +282,14 @@ class Pix2PixModel(torch.nn.Module):
             "You cannot compute KLD loss if opt.use_vae == False"
 
         return fake_image, KLD_loss
+
+    def segment_image(self, real_image):
+        if self.amp:
+            with autocast():
+                seg = self.netS(real_image)
+        else:
+            seg = self.netS(real_image)
+        return seg
 
     # Given fake and real image, return the prediction of discriminator
     # for each fake and real image.

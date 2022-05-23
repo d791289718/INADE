@@ -90,7 +90,9 @@ class SPADEGenerator(BaseNetwork):
         # b_noise = torch.unsqueeze(noise[:,:,1,:].mul(z[3])+z[2],2)
         # return torch.cat([s_noise,b_noise],2)
         # 再次affine
-        return torch.stack([noise[:,0,:,:].mul(z[0])+z[1], noise[:,1,:,:].mul(z[2])+z[3]], 1)
+        b, embedding_dim = z[0].size()
+        return torch.stack([noise[:,0,:,:].mul(z[0].reshape(b, 1, embedding_dim))+z[1].reshape(b, 1, embedding_dim), \
+            noise[:,1,:,:].mul(z[2].reshape(b, 1, embedding_dim))+z[3].reshape(b, 1, embedding_dim)], 1)
 
     def init_embeddings(self):
         nn.init.uniform_(self.embeddings[..., 0])

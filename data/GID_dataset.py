@@ -72,7 +72,14 @@ class GIDDataset(Pix2pixDataset):
                     if not opt.no_instance and len(opt.generate_input_dir) > 0:
                         instance_paths.append(os.path.join(opt.generate_input_dir, name+'.png'))
                     if opt.use_vae:
-                        image_paths.append(os.path.join(opt.image_dir, name+'.png'))
+                        specific_style = False
+                        if not specific_style:image_paths.append(os.path.join(opt.image_dir, name+'.png'))
+        
+        if opt.phase == 'generate' and opt.use_vae and specific_style:
+            image_paths.append(os.path.join(opt.image_dir, 'GF2_PMS1__L1A0001118839-MSS1_4352_4864.png'))
+            image_paths.append(os.path.join(opt.image_dir, 'GF2_PMS1__L1A0001118839-MSS1_4352_4864.png'))
+            image_paths.append(os.path.join(opt.image_dir, 'GF2_PMS1__L1A0001118839-MSS1_4352_4864.png'))
+            image_paths.append(os.path.join(opt.image_dir, 'GF2_PMS1__L1A0001118839-MSS1_4352_4864.png'))
 
         if opt.add_aug:
             with open(os.path.join(opt.split_dir, opt.aug_txt), 'r') as f:
@@ -83,8 +90,8 @@ class GIDDataset(Pix2pixDataset):
                         instance_paths.append(os.path.join(opt.aug_instance_dir, name+'.png'))
                     if opt.phase != 'generate':
                         image_paths.append(os.path.join(opt.aug_img_dir, name+'.png'))
-
-        # assert len(label_paths) == len(image_paths), "The #images in %s and %s do not match. Is there something wrong?"
+        if opt.phase != 'generate' or opt.phase == 'generate' and opt.use_vae == True:
+            assert len(label_paths) == len(image_paths), "The #images in %s and %s do not match. Is there something wrong?"
         if opt.phase != 'generate':
             txt_root = opt.checkpoints_dir if opt.phase == "train" else opt.results_dir
             os.makedirs(os.path.join(txt_root, opt.name), exist_ok=True)
@@ -92,7 +99,7 @@ class GIDDataset(Pix2pixDataset):
             shutil.copyfile(os.path.join(opt.split_dir, 'readme.txt'), file_name)
             with open(file_name, 'a') as opt_file:
                 if opt.add_aug: opt_file.write("\n add_gud: {}".format(opt.aug_txt))
-                opt_file.write("\n[exactly in {opt.phase}] dataset size: ")
+                opt_file.write("\n[exactly in {}] dataset size: ".format(opt.phase))
                 opt_file.write("label: {}, image: {}, instance: {}".format(len(label_paths), len(image_paths), len(instance_paths)))
 
         return label_paths, image_paths, instance_paths # paths
@@ -151,9 +158,9 @@ class GIDDataset(Pix2pixDataset):
             image_path = label_path
         else:
             image_path = self.image_paths[index]
-            assert self.paths_match(label_path, image_path), \
-                "The label_path %s and image_path %s don't match." % \
-                (label_path, image_path)
+            # assert self.paths_match(label_path, image_path), \
+            #     "The label_path %s and image_path %s don't match." % \
+            #     (label_path, image_path)
             image = Image.open(image_path)
             image = image.convert('RGB')
 
