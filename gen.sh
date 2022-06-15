@@ -1,1 +1,1 @@
-python test.py --name GID_v3_seginG --norm_mode inade --batchSize 80 --gpu_ids 0 --which_epoch best --dataset_mode GID --phase "generate" --generate_stamp 'juicy' --aug_txt 'v2_train_1.txt'
+python test.py --name GID_v3_segfrozen --norm_mode inade --batchSize 80 --gpu_ids 0 --which_epoch best --dataset_mode GID --phase "generate" --generate_stamp 'coco' --aug_txt 'new_v5_train_1.txt'

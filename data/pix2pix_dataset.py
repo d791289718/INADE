@@ -62,18 +62,23 @@ class Pix2pixDataset(BaseDataset):
         params = get_params(self.opt, label.size)
         transform_label = get_transform(self.opt, params, method=InterpolationMode.NEAREST, normalize=False)
         label_tensor = transform_label(label) * 255.0
-        label_tensor[label_tensor == 255] = self.opt.label_nc  # 'unknown' is opt.label_nc
+        label_tensor = label_tensor.long()
+        label_tensor[label_tensor == 255] = self.opt.label_nc  # 'unknown' is opt.label_nc used in cityscapes
 
         # input image (real images)
-        image_path = self.image_paths[index]
-        assert self.paths_match(label_path, image_path), \
-            "The label_path %s and image_path %s don't match." % \
-            (label_path, image_path)
-        image = Image.open(image_path)
-        image = image.convert('RGB')
+        if self.opt.phase == 'generate' and not self.opt.use_vae:
+            image_tensor = 0
+            image_path = label_path
+        else:
+            image_path = self.image_paths[index]
+            assert self.paths_match(label_path, image_path), \
+                "The label_path %s and image_path %s don't match." % \
+                (label_path, image_path)
+            image = Image.open(image_path)
+            image = image.convert('RGB')
 
-        transform_image = get_transform(self.opt, params)
-        image_tensor = transform_image(image)
+            transform_image = get_transform(self.opt, params)
+            image_tensor = transform_image(image)
 
         # if using instance maps
         if self.opt.no_instance:
@@ -85,18 +90,59 @@ class Pix2pixDataset(BaseDataset):
                 instance_tensor = transform_label(instance) * 255
                 instance_tensor = instance_tensor.long()
             else:
-                instance_tensor = transform_label(instance) # check!!!
+                print('something wrong')
+                instance_tensor = transform_label(instance)
 
-        input_dict = {'label': label_tensor,
-                      'instance': instance_tensor,
-                      'image': image_tensor,
+        input_dict = {'label': label_tensor, # [1, 256, 256]
+                      'instance': instance_tensor, # [1, 256, 256]
+                      'image': image_tensor, # [3, 256, 256]
                       'path': image_path,
                       }
 
-        # Give subclasses a chance to modify the final output
-        self.postprocess(input_dict)
+        return input_dict # origin data
 
-        return input_dict
+    # def __getitem__(self, index):
+    #     # Label Image
+    #     label_path = self.label_paths[index]
+    #     label = Image.open(label_path)
+    #     params = get_params(self.opt, label.size)
+    #     transform_label = get_transform(self.opt, params, method=InterpolationMode.NEAREST, normalize=False)
+    #     label_tensor = transform_label(label) * 255.0
+    #     label_tensor[label_tensor == 255] = self.opt.label_nc  # 'unknown' is opt.label_nc
+
+    #     # input image (real images)
+    #     image_path = self.image_paths[index]
+    #     assert self.paths_match(label_path, image_path), \
+    #         "The label_path %s and image_path %s don't match." % \
+    #         (label_path, image_path)
+    #     image = Image.open(image_path)
+    #     image = image.convert('RGB')
+
+    #     transform_image = get_transform(self.opt, params)
+    #     image_tensor = transform_image(image)
+
+    #     # if using instance maps
+    #     if self.opt.no_instance:
+    #         instance_tensor = 0
+    #     else:
+    #         instance_path = self.instance_paths[index]
+    #         instance = Image.open(instance_path)
+    #         if instance.mode in ('L', 'P'):
+    #             instance_tensor = transform_label(instance) * 255
+    #             instance_tensor = instance_tensor.long()
+    #         else:
+    #             instance_tensor = transform_label(instance) # check!!!
+
+    #     input_dict = {'label': label_tensor,
+    #                   'instance': instance_tensor,
+    #                   'image': image_tensor,
+    #                   'path': image_path,
+    #                   }
+
+    #     # Give subclasses a chance to modify the final output
+    #     self.postprocess(input_dict)
+
+    #     return input_dict
 
     def postprocess(self, input_dict):
         return input_dict

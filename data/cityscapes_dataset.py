@@ -14,7 +14,7 @@ class CityscapesDataset(Pix2pixDataset):
         parser.set_defaults(display_winsize=512)
         parser.set_defaults(label_nc=35)
         parser.set_defaults(aspect_ratio=2.0)
-        parser.set_defaults(dataroot='/home/tzt/dataset/cityscapes/')
+        parser.set_defaults(dataroot='dataset/cityscapes/')
         opt, _ = parser.parse_known_args()
         if hasattr(opt, 'num_upsampling_layers'):
             parser.set_defaults(num_upsampling_layers='more')
@@ -22,7 +22,8 @@ class CityscapesDataset(Pix2pixDataset):
 
     def get_paths(self, opt):
         root = opt.dataroot
-        phase = 'val' if opt.phase == 'test' else 'train'
+        # phase = 'val' if opt.phase == 'test' else 'train'
+        phase = opt.phase
 
         label_dir = os.path.join(root, 'gtFine', phase)
         label_paths_all = make_dataset(label_dir, recursive=True)

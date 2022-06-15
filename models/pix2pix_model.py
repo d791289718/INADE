@@ -137,6 +137,12 @@ class Pix2PixModel(torch.nn.Module):
             if opt.use_segmodel:
                 netS = util.load_network(netS, 'S', epoch, opt)
 
+        # !
+        # weights = torch.load("deep_lab/checkpoints/unet_v3_baseline_check/deeplab_186.pth")
+        # netS.load_state_dict(weights)
+        # for param in netS.parameters():
+        #     param.requires_grad = False
+
         return netG, netD, netE, netIE, netS
 
     # preprocess the input, such as moving the tensors to GPUs and

@@ -26,7 +26,7 @@ class SPADEGenerator(BaseNetwork):
         self.opt = opt
         nf = opt.ngf
 
-        self.seed_file = os.path.join(opt.aug_dir, 'aug_seed.txt')
+        # self.seed_file = os.path.join(opt.aug_dir, 'aug_seed.txt')
         # self.seed_dict = {}
 
         self.sw, self.sh = self.compute_latent_vector_size(opt)

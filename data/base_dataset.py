@@ -73,7 +73,7 @@ def get_transform(opt, params, method=InterpolationMode.BICUBIC, normalize=True,
     if opt.preprocess_mode == 'fixed':
         w = opt.crop_size
         h = round(opt.crop_size / opt.aspect_ratio)
-        transform_list.append(transforms.Lambda(lambda img: __resize(img, w, h, method)))
+        transform_list.append(transforms.Lambda(lambda img: __resize(img, w, h, Image.NEAREST)))
 
     if opt.isTrain and not opt.no_flip:
         transform_list.append(transforms.Lambda(lambda img: __flip(img, params['flip'])))
